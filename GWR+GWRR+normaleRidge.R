@@ -19,6 +19,7 @@ library(caret)
 library(ISLR)
 library(dplyr)
 library(SpatialML)
+library(caret)
 
 # Set working directory
 setwd("C:/Users/semva/OneDrive/Documenten/Study/Seminar/Reproductie")
@@ -288,6 +289,51 @@ coordinates_df_train <- coordinates(df_train)
 
 coordinates_df_train<-data.frame(coordinates_df_train[,12],coordinates_df_train[,13])
 
+# # Tuning investigation
+# Randomly select 15% of the data for tuning
+num_obs_15percent <- round(0.15 * nrow(data))
+sampled_indices <- sample(nrow(data), size = num_obs_15percent, replace = FALSE)
+tuning_data <- data[sampled_indices, c(4, 6, 9, 11, 12, 14, 19, 25, 26, 28, 29,38, 40, 41, 42, 46, 50, 54, 58, 62, 66, 70)]
+train_control <- trainControl(method = "cv",   # k-fold cross-validation
+                              number = 5,     # Number of folds
+                              verboseIter = TRUE)  # Print progress
+
+tunegrid <- expand.grid(.mtry = (1:21))
+
+grfmethod <- list(type = "Regression",
+              library = "SpatialML",
+              loop = NULL) 
+parameters <- data.frame(parameter = c("mtry", "ntree"),
+                  class = rep("numeric", 2),
+                  label = c("mtry", "Number of trees"))
+grfmethod$parameters <- parameters
+grfmethod$grid<-tunegrid
+
+grffit <- function(formula, dframe, bw, kernel, coords, ntree, forests, geo.weighted) { 
+  SpatialML::grf(log_price ~ house_dummy + building_dummy + room + bedroom + living_area + house_age + floor +
+                   floor_dummy_missing + balcony + garden + safety_index + physical_index_objective + social_index + traveltime_primary_school +
+                   traveltime_night_club + traveltime_subway_station + traveltime_gym + traveltime_supermarket + traveltime_bus_station + traveltime_park + traveltime_stadhuis, 
+                 dframe = df_train, bw = 600, kernel = "fixed", coords = coordinates_df_train,
+                 ntree = 200, forests = TRUE, geo.weighted = TRUE)
+}
+
+grfmethod$fit <- grffit
+
+grfPred <- function(modelFit, new.data, preProc = NULL, submodels = NULL)
+  SpatialML::predict.grf(modelFit, newdata)
+grfmethod$predict <- grfPred
+  
+prob<-NULL
+
+model <- train(log_price ~ house_dummy + building_dummy + room + bedroom + living_area
+               + house_age + floor + floor_dummy_missing + balcony + garden + traveltime_primary_school + safety_index
+               + social_index + physical_index_objective + traveltime_night_club + traveltime_subway_station
+               + traveltime_gym + traveltime_supermarket + traveltime_bus_station + traveltime_park + traveltime_stadhuis,
+               data = df_train,
+               method = grfmethod, importance = TRUE, tuneGrid = tunegrid,
+               trControl = train_control)
+
+plot(model)
 set.seed(815147)
 grf_bw <- grf.bw(regression, dataset = df_train, kernel = "fixed", coords = coordinates_df_train,
                  bw.min = 60, bw.max = 600, step =10, trees = 200, geo.weighted = TRUE)
