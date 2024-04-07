@@ -324,7 +324,7 @@ grfPred <- function(modelFit, new.data, preProc = NULL, submodels = NULL)
 grfmethod$predict <- grfPred
   
 prob<-NULL
-
+#_____________________
 model <- train(log_price ~ house_dummy + building_dummy + room + bedroom + living_area
                + house_age + floor + floor_dummy_missing + balcony + garden + traveltime_primary_school + safety_index
                + social_index + physical_index_objective + traveltime_night_club + traveltime_subway_station
@@ -334,10 +334,23 @@ model <- train(log_price ~ house_dummy + building_dummy + room + bedroom + livin
                trControl = train_control)
 
 plot(model)
+#_____________________
+set.seed(815147)
+best_bw<-vector()
+best_bw[1]=190
+best_bw[2]=410
+best_bw[3]=580
+for( i in 9:21){
+print("Tuning for mtry = ") 
+print(i)
 set.seed(815147)
 grf_bw <- grf.bw(regression, dataset = df_train, kernel = "fixed", coords = coordinates_df_train,
-                 bw.min = 60, bw.max = 600, step =10, trees = 200, geo.weighted = TRUE)
-best_bw <- grf_bw$Best.BW
+                 bw.min = 60, bw.max = 600, step =10, trees = 200, geo.weighted = TRUE, mtry = i)
+best_bw[i-4] <- grf_bw$Best.BW
+rsquared<- grf_bw$tested.bandwidths
+}
+best_bw<-c(190,410,580,420, 190,410,580,420)
+
 set.seed(815147)
 grf_fit <- grf(log_price ~ house_dummy + building_dummy + room + bedroom + living_area + house_age + floor +
                  floor_dummy_missing + balcony + garden + safety_index + physical_index_objective + social_index + traveltime_primary_school +
