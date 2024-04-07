@@ -270,13 +270,24 @@ final_R_squared_wo <- mean(R_squared_wo)
 set.seed(815147)
 data<- read_excel("/Users/whgrefhorst/Documents/Econometrie/Jaar 3/Seminar Machine Learning/Research/Data/main_dataset_metroutes.xlsx")
 data_use <- data[, c(4, 6, 9, 11, 12, 14, 19, 25, 26, 28, 29, 30, 31,38, 40, 41, 42, 46, 50, 54, 58, 62, 66, 70)]
+
 n_rows <- nrow(data_use)
 n_rows_20_percent <- round(.2*n_rows)
+n_rows_15_percent <- round(.15*n_rows)
+n_rows_65_percent <- round(.65*n_rows)
 
-indices_20_percent <- sample(1:n_rows, size = n_rows_20_percent)
+indices_15_percent <- sample(1:n_rows, size = n_rows_15_percent)
 
-df_test <- data[indices_20_percent,]
-df_train <- data[-indices_20_percent,]
+
+df_tune <- data[indices_15_percent,]
+df_rest<-data[-indices_15_percent,]
+df_train <- df_rest[1:n_rows_65_percent,]
+df_test<-df_rest[(n_rows_65_percent+1):1014,]
+
+
+
+df_tune[, c(11, 12, 14, 19, 25, 38, 40, 41, 42, 46, 50, 54, 58, 62, 66, 70)] <- scale(df_tune[,c(11, 12, 14, 19, 25, 38, 40, 41, 42, 46, 50, 54, 58, 62, 66, 70)])
+df_tune<- df_tune[, c(4, 6, 9, 11, 12, 14, 19, 25, 26, 28, 29, 30, 31,38, 40, 41, 42, 46, 50, 54, 58, 62, 66, 70)]
 
 df_test[, c(11, 12, 14, 19, 25, 38, 40, 41, 42, 46, 50, 54, 58, 62, 66, 70)] <- scale(df_test[,c(11, 12, 14, 19, 25, 38, 40, 41, 42, 46, 50, 54, 58, 62, 66, 70)])
 df_test<- df_test[, c(4, 6, 9, 11, 12, 14, 19, 25, 26, 28, 29, 30, 31,38, 40, 41, 42, 46, 50, 54, 58, 62, 66, 70)]
@@ -340,25 +351,70 @@ best_bw<-vector()
 best_bw[1]=190
 best_bw[2]=410
 best_bw[3]=580
-for( i in 9:21){
+for( i in 11:21){
 print("Tuning for mtry = ") 
 print(i)
 set.seed(815147)
-grf_bw <- grf.bw(regression, dataset = df_train, kernel = "fixed", coords = coordinates_df_train,
+grf_bw <- grf.bw(regression, dataset = df_tune, kernel = "fixed", coords = coordinates_df_tune,
                  bw.min = 60, bw.max = 600, step =10, trees = 200, geo.weighted = TRUE, mtry = i)
 best_bw[i-4] <- grf_bw$Best.BW
 rsquared<- grf_bw$tested.bandwidths
 }
 best_bw<-c(190,410,580,420, 190,410,580,420)
 
+#Selecting bandwidth and Mtry for tuning set------------------------------------
+set.seed(815147)
+best_bw<-vector()
+
+#get coordinates
+coordinates_df_tune<-coordinates(df_tune)
+coordinates_df_tune<-data.frame(coordinates_df_tune[,12],coordinates_df_tune[,13])
+
+for( i in 5:21){
+  print("Tuning for mtry = ") 
+  print(i)
+  set.seed(815147)
+  grf_bw <- grf.bw(regression, dataset = df_tune, kernel = "fixed", coords = coordinates_df_tune,
+                   bw.min = 60, bw.max = 600, step =10, trees = 200, geo.weighted = TRUE, mtry = i)
+  best_bw[i-4] <- grf_bw$Best.BW
+  rsquared<- grf_bw$tested.bandwidths
+}
+
+grf_fit <- grf(log_price ~ house_dummy + building_dummy + room + bedroom + living_area + house_age + floor +
+                 floor_dummy_missing + balcony + garden + safety_index + physical_index_objective + social_index + traveltime_primary_school +
+                 traveltime_night_club + traveltime_subway_station + traveltime_gym + traveltime_supermarket + traveltime_bus_station + traveltime_park + traveltime_stadhuis, 
+               dframe = df_train, bw = 60, kernel = "fixed", coords = coordinates_df_train,
+               ntree = 200, forests = TRUE, geo.weighted = TRUE, print.results = TRUE, mtry=4)
+
+best_bw_byhand<-c(120,530,510,560,270,130,600, 560, 310 ,110, 430 , 70, 190,  70, 190 ,560 ,240)
+
+#Determine best final model------------------------------------------
+best_R2_OOB<-vector()
+best_MSE_OOB<-vector()
+for (i in 3){
+  set.seed(815147)
+  grf_fit <- grf(log_price ~ house_dummy + building_dummy + room + bedroom + living_area + house_age + floor +
+                   floor_dummy_missing + balcony + garden + safety_index + physical_index_objective + social_index + traveltime_primary_school +
+                   traveltime_night_club + traveltime_subway_station + traveltime_gym + traveltime_supermarket + traveltime_bus_station + traveltime_park + traveltime_stadhuis, 
+                 dframe = df_tune, bw = best_bw_byhand[i], kernel = "fixed", coords = coordinates_df_tune,
+                 ntree = 200, forests = TRUE, geo.weighted = TRUE, print.results = TRUE, mtry=i+4)
+  best_R2_OOB[i]<-grf_fit[["LocalModelSummary"]][["l.r.OOB"]]
+  best_MSE_OOB[i]<-grf_fit[["LocalModelSummary"]][["l.MSE.OOB"]]
+}
+max(best_R2_OOB)
+min(best_MSE_OOB)
+best_R2_OOB 
+best_MSE_OOB 
+#Choose best bandwidth + best mtry at once mtry=7, bandwidth = 510
 set.seed(815147)
 grf_fit <- grf(log_price ~ house_dummy + building_dummy + room + bedroom + living_area + house_age + floor +
                  floor_dummy_missing + balcony + garden + safety_index + physical_index_objective + social_index + traveltime_primary_school +
                  traveltime_night_club + traveltime_subway_station + traveltime_gym + traveltime_supermarket + traveltime_bus_station + traveltime_park + traveltime_stadhuis, 
-               dframe = df_train, bw = 600, kernel = "fixed", coords = coordinates_df_train,
-               ntree = 200, forests = TRUE, geo.weighted = TRUE, print.results = TRUE)
-
+               dframe = df_train, bw =510, kernel = "fixed", coords = coordinates_df_train,
+               ntree = 200, forests = TRUE, geo.weighted = TRUE, print.results = TRUE, mtry=7)
+grf_fit
 #Predict geeft gelijk alleen de predictions:
+set.seed(815147)
 grf_predictions <- predict.grf(grf_fit, new.data = df_test, x.var.name = "latitude", y.var.name = "longitude")
 true_values <- df_test$log_price
 errors_grf <- vector("numeric",length = length(true_values))
