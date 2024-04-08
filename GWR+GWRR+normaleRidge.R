@@ -25,7 +25,7 @@ library(caret)
 setwd("C:/Users/semva/OneDrive/Documenten/Study/Seminar/Reproductie")
 
 # Load data
-data <- read_excel("C:/Users/wgcam/Downloads/Main_dataset_final.xlsx")
+data <- read_excel("Main_dataset_final.xlsx")
 
 
 #Scaling continuous X variables:
@@ -35,8 +35,6 @@ data_use <- data
 data_use <- data[, c(4, 6, 9, 11, 12, 14, 19, 25, 26, 28, 29, 30, 31,38, 40, 41, 42, 46, 50, 54, 58, 62, 66, 70)]
 
 
-# Plot data
-plot(data_use)
 
 ####################################
 # Splitting Data into training, testing and validation
@@ -118,13 +116,89 @@ DeVar = "log_price"
 InDeVar = c("house_dummy", "building_dummy", "room", "bedroom", "living_area", "house_age", "floor",
             "floor_dummy_missing", "balcony", "garden", "safety_index", "physical_index_objective", "social_index", "traveltime_primary_school",
             "traveltime_night_club", "traveltime_subway_station", "traveltime_gym", "traveltime_supermarket", "traveltime_bus_station", "traveltime_park", "traveltime_stadhuis")
-bwgwsel =bw.gwr(formula=regression, data=data_use, approach = "CV", kernel = "gaussian", dMat = dMat, adaptive = TRUE)
-model.sel = gwr.model.selection(DeVar = DeVar, InDeVars = InDeVar, 
-                                data = data_use, bw = bwgwsel, approach = "aic",
-                                kernel = "gaussian", dMat = dMat, adaptive = TRUE)
+
 model.list = model.sel[[1]]
 GWR.df = model.sel[[2]]
 gwr.model.view(DeVar = DeVar, InDeVars = InDeVar, model.list = model.list)
+
+set.seed(815147) # For reproducibility
+n <- nrow(data_use)
+k <- 10 # Number of folds
+fold_indices <- sample(1:k, n, replace = TRUE)
+folds <- split(1:n, fold_indices)
+
+predictions_wo <- list()
+mse_wo <- vector("numeric",length = k)
+rmse_wo <- vector("numeric",length = k)
+R_squared_wo <- vector("numeric", length = k)
+local_R_squared <- vector("numeric", nrow(data_use))
+selected_models <- list()
+
+for (i in 1:k) {
+  print(paste0("fold: ",i,"/",k))
+  test_indices <- folds[[i]]
+  train_indices <- setdiff(1:n, test_indices)
+  
+  train_data <- data_use[train_indices, ]
+  test_data <- data_use[test_indices, ]
+  
+  # Fit GWR model on training data.
+  # Distance matrix train
+  coordinates_train <- coordinates(train_data)
+  dMat_train <- gw.dist(coordinates_train, focus = 0)
+  
+  bwgwsel = bw.gwr(formula=regression, data=train_data, approach = "CV", kernel = "gaussian", 
+                  dMat = dMat_train, adaptive = TRUE)
+  model.sel = gwr.model.selection(DeVar = DeVar, InDeVars = InDeVar, 
+                                  data = train_data, bw = bwgwsel, approach = "aic",
+                                  kernel = "gaussian", dMat = dMat_train, adaptive = TRUE)
+  model.list = model.sel[[1]]
+  GWR.df = model.sel[[2]]
+  
+  GWR.df <- as.data.frame(GWR.df)
+  sorted.GWR.df = GWR.df[order(GWR.df$V3),]
+  
+  selected.model = model.list[[as.numeric(rownames(sorted.GWR.df[1, ]))]][[1]]
+  selected_models[[i]] <- selected.model
+  
+  selected.regression <- lm(selected.model, data = train_data)
+  
+  bwk <- bw.gwr(formula=selected.regression, data=train_data, approach = "CV", kernel = "gaussian", 
+                dMat = dMat_train, adaptive = TRUE)
+  
+  # Predict on test set
+  gwr.pred.k <- gwr.predict(formula = selected.regression, data = train_data, predictdata = test_data, bw = bwk, 
+                            kernel = "gaussian", adaptive = TRUE, p = 2, theta = 0, dMat2 = dMat_train)
+  predictions <- gwr.pred.k$SDF$prediction
+  
+  
+  # Store results, e.g., predictions and maybe calculate some accuracy metric
+  predictions_wo[[i]] <- predictions
+  
+  #Calculating Mean squared errors using predictions:
+  errors <- vector("numeric", length = length(predictions))
+  for (j in 1:length(predictions)) {
+    errors[j] = (test_data$log_price[j] - predictions[j])^2
+  }
+  mse_wo[i] <- mean(errors)
+  rmse_wo[i] <- sqrt(mse_wo[i])
+  
+  #Calculating R squared for each fold and fit:
+  residuals <- gwr.pred.k$GW.arguments$formula$residuals
+  SSR <- sum(residuals^2)
+  diff <- train_data$log_price - mean(train_data$log_price)
+  SST <- sum(diff^2)
+  R_squared_wo[i] <- 1 - SSR/SST
+  local_R_squared[test_indices] <- 1 - (SSR / SST)
+}
+
+print("finished")
+
+# Assess model performance across all folds, e.g., via RMSE, R-squared, etc.
+final_rmse_wo <- mean(rmse_wo)
+final_mse_wo <- mean(mse_wo)
+final_R_squared_wo <- mean(R_squared_wo)
+
 
 
 
@@ -219,6 +293,7 @@ predictions_wo <- list()
 mse_wo <- vector("numeric",length = k)
 rmse_wo <- vector("numeric",length = k)
 R_squared_wo <- vector("numeric", length = k)
+local_R_squared <- vector("numeric", nrow(data_use))
 
 for (i in 1:k) {
   print(paste0("fold: ",i,"/",k))
@@ -259,6 +334,7 @@ for (i in 1:k) {
   diff <- train_data$log_price - mean(train_data$log_price)
   SST <- sum(diff^2)
   R_squared_wo[i] <- 1 - SSR/SST
+  local_R_squared[test_indices] <- 1 - (SSR / SST)
 }
 
 print("finished")
