@@ -369,8 +369,8 @@ best_bw<-vector()
 #get coordinates
 coordinates_df_tune<-coordinates(df_tune)
 coordinates_df_tune<-data.frame(coordinates_df_tune[,12],coordinates_df_tune[,13])
-
-for( i in 5:21){
+coordinates_df_tune<-as.matrix(coordinates_df_tune)
+for( i in 5:21){for( as.matrix()i in 5:21){
   print("Tuning for mtry = ") 
   print(i)
   set.seed(815147)
@@ -391,7 +391,7 @@ best_bw_byhand<-c(120,530,510,560,270,130,600, 560, 310 ,110, 430 , 70, 190,  70
 #Determine best final model------------------------------------------
 best_R2_OOB<-vector()
 best_MSE_OOB<-vector()
-for (i in 3){
+for (i in 1:17){
   set.seed(815147)
   grf_fit <- grf(log_price ~ house_dummy + building_dummy + room + bedroom + living_area + house_age + floor +
                    floor_dummy_missing + balcony + garden + safety_index + physical_index_objective + social_index + traveltime_primary_school +
@@ -405,7 +405,7 @@ max(best_R2_OOB)
 min(best_MSE_OOB)
 best_R2_OOB 
 best_MSE_OOB 
-#Choose best bandwidth + best mtry at once mtry=7, bandwidth = 510
+#Choose best bandwidth + best mtry at once mtry=7, bandwidth = 510------------------
 set.seed(815147)
 grf_fit <- grf(log_price ~ house_dummy + building_dummy + room + bedroom + living_area + house_age + floor +
                  floor_dummy_missing + balcony + garden + safety_index + physical_index_objective + social_index + traveltime_primary_school +
@@ -427,3 +427,100 @@ mse_grf <- mean(errors_grf)
 rmse_grf <- sqrt(mse_grf)
 mse_grf
 rmse_grf
+
+#K fold cross validation Geographical Random Forest
+
+set.seed(815147) # For reproducibility
+n <- nrow(df_rest)
+k <- 10 # Number of folds
+fold_indices <- sample(1:k, n, replace = TRUE)
+folds <- split(1:n, fold_indices)
+
+df_rest[, c(11, 12, 14, 19, 25, 38, 40, 41, 42, 46, 50, 54, 58, 62, 66, 70)] <- scale(df_rest[,c(11, 12, 14, 19, 25, 38, 40, 41, 42, 46, 50, 54, 58, 62, 66, 70)])
+df_rest<- df_rest[, c(4, 6, 9, 11, 12, 14, 19, 25, 26, 28, 29, 30, 31,38, 40, 41, 42, 46, 50, 54, 58, 62, 66, 70)]
+
+predictions_wo <- list()
+variableimportance<-list()
+mse_wo <- vector("numeric",length = k)
+rmse_wo <- vector("numeric",length = k)
+R_squared_wo <- vector("numeric", length = k)
+
+for (i in 1:10) {
+  print(paste0("fold: ",i,"/",k))
+  test_indices <- folds[[i]]
+  train_indices <- setdiff(1:n, test_indices)
+  
+  train_data <- df_rest[train_indices, ]
+  test_data <- df_rest[test_indices, ]
+  
+  # Fit Geographical Random Forest model on training data.
+  # Distance matrix train
+  coordinates_train <- coordinates(train_data)
+  coordinates_train<-data.frame(coordinates_train[,12],coordinates_train[,13])
+  coordinates_train<-as.matrix(coordinates_train)
+  dMat_train <- gw.dist(coordinates_train, focus = 0)
+  
+  set.seed(815147)
+  grf_fit <- grf(log_price ~ house_dummy + building_dummy + room + bedroom + living_area + house_age + floor +
+                   floor_dummy_missing + balcony + garden + safety_index + physical_index_objective + social_index + traveltime_primary_school +
+                   traveltime_night_club + traveltime_subway_station + traveltime_gym + traveltime_supermarket + traveltime_bus_station + traveltime_park + traveltime_stadhuis, 
+                 dframe = train_data, bw =510, kernel = "fixed", coords = coordinates_train,
+                 ntree = 200, forests = TRUE, geo.weighted = TRUE, print.results = FALSE, mtry=7, importance = "permutation")  
+  variableimportance[[i]]<-grf_fit[["LocalModelSummary"]][["l.VariableImportance"]]$Mean
+  # Predict on test set
+  set.seed(815147)
+  grf_predictions <- predict.grf(grf_fit, new.data = test_data, x.var.name = "latitude", y.var.name = "longitude")
+  
+  predictions <- grf_predictions
+  
+  
+  # Store results, e.g., predictions and maybe calculate some accuracy metric
+  predictions_wo[[i]] <- predictions
+  
+  #Calculating Mean squared errors using predictions:
+  errors <- vector("numeric", length = length(predictions))
+  for (j in 1:length(predictions)) {
+    errors[j] = (test_data$log_price[j] - predictions[j])^2
+  }
+  mse_wo[i] <- mean(errors)
+  rmse_wo[i] <- sqrt(mse_wo[i])
+  
+  #Calculating R squared for each fold and fit:
+  residuals <- errors
+  SSR <- sum(residuals^2)
+  diff <- train_data$log_price - mean(train_data$log_price)
+  SST <- sum(diff^2)
+  R_squared_wo[i] <- 1 - SSR/SST
+}
+
+print("finished")
+
+# Assess model performance across all folds, e.g., via RMSE, R-squared, etc.
+final_rmse_wo <- mean(rmse_wo)
+final_mse_wo <- mean(mse_wo)
+final_R_squared_wo <- mean(R_squared_wo)
+final_variable_importance<-data.frame(variableimportance)
+variable_importance_total<-vector()
+for(i in 1:21){
+variable_importance_total[i]<-(sum(final_variable_importance[i,])/10)
+}
+
+# Load the required library
+library(ggplot2)
+
+variables<-colnames(grf_fit[["Local.Variable.Importance"]])
+# Sample data
+plottingdata <- data.frame(
+  names = variables,
+  numbers = variable_importance_total
+)
+
+# Create the plot
+ggplot(plottingdata, aes(x = names, y = numbers)) +
+  geom_point() +  # Plot the data points
+  labs(x = "Variables", y = "Importance") +  # Labels for axes
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels for better readability
+
+
+
+
