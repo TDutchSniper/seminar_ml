@@ -112,7 +112,19 @@ print(gwrlcr)
 # # 
 # # plot(joined, max.plot = 79)
 
-
+#-------------------------------------------------------------------------------
+# GWR MODEL SELECTION:
+DeVar = "log_price"
+InDeVar = c("house_dummy", "building_dummy", "room", "bedroom", "living_area", "house_age", "floor",
+            "floor_dummy_missing", "balcony", "garden", "safety_index", "physical_index_objective", "social_index", "traveltime_primary_school",
+            "traveltime_night_club", "traveltime_subway_station", "traveltime_gym", "traveltime_supermarket", "traveltime_bus_station", "traveltime_park", "traveltime_stadhuis")
+bwgwsel =bw.gwr(formula=regression, data=data_use, approach = "CV", kernel = "gaussian", dMat = dMat, adaptive = TRUE)
+model.sel = gwr.model.selection(DeVar = DeVar, InDeVars = InDeVar, 
+                                data = data_use, bw = bwgwsel, approach = "aic",
+                                kernel = "gaussian", dMat = dMat, adaptive = TRUE)
+model.list = model.sel[[1]]
+GWR.df = model.sel[[2]]
+gwr.model.view(DeVar = DeVar, InDeVars = InDeVar, model.list = model.list)
 
 
 
